@@ -1,0 +1,7 @@
+libdrawp
+==========
+
+libdraw port (from Plan 9)
+
+This port includes stand-alone versions of
+Plan 9's libdraw, libmemdraw and libmemlayer.

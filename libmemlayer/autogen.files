@@ -1,0 +1,12 @@
+/sys/src/libmemlayer/draw.c
+/sys/src/libmemlayer/lalloc.c
+/sys/src/libmemlayer/layerop.c
+/sys/src/libmemlayer/ldelete.c
+/sys/src/libmemlayer/lhide.c
+/sys/src/libmemlayer/line.c
+/sys/src/libmemlayer/load.c
+/sys/src/libmemlayer/lorigin.c
+/sys/src/libmemlayer/lsetrefresh.c
+/sys/src/libmemlayer/ltofront.c
+/sys/src/libmemlayer/ltorear.c
+/sys/src/libmemlayer/unload.c

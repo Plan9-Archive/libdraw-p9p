@@ -1,0 +1,15 @@
+/sys/src/libmemdraw/alloc.c
+/sys/src/libmemdraw/arc.c
+/sys/src/libmemdraw/arctest.c
+/sys/src/libmemdraw/cload.c
+/sys/src/libmemdraw/cmap.c
+/sys/src/libmemdraw/defont.c
+/sys/src/libmemdraw/draw.c
+/sys/src/libmemdraw/ellipse.c
+/sys/src/libmemdraw/fillpoly.c
+/sys/src/libmemdraw/line.c
+/sys/src/libmemdraw/load.c
+/sys/src/libmemdraw/poly.c
+/sys/src/libmemdraw/string.c
+/sys/src/libmemdraw/subfont.c
+/sys/src/libmemdraw/unload.c

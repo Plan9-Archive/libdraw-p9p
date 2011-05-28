@@ -1,0 +1,26 @@
+LIBMEMLAYER_OBJS = \
+	$(addprefix libmemlayer/, \
+		draw.o \
+		lalloc.o \
+		layerop.o \
+		ldelete.o \
+		lhide.o \
+		line.o \
+		load.o \
+		lorigin.o \
+		lsetrefresh.o \
+		ltofront.o \
+		ltorear.o \
+		unload.o \
+	)
+
+libmemlayer/%.o: libmemlayer/%.c include/memlayer.h $(H_FILES)
+	$(HOST_CC) $(HOST_CFLAGS) -I. -Wall -Wno-missing-braces -c -o $@ $<
+
+libmemlayer/libmemlayer.a: $(LIBMEMLAYER_OBJS)
+	$(AR) rs $@ $(LIBMEMLAYER_OBJS)
+
+CLEAN_FILES += \
+	libmemlayer/*.o \
+	libmemlayer/libmemlayer.a \
+

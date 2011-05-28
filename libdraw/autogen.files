@@ -1,0 +1,11 @@
+/sys/src/libdraw/arith.c
+/sys/src/libdraw/bytesperline.c
+/sys/src/libdraw/chan.c
+/sys/src/libdraw/computil.c
+/sys/src/libdraw/defont.c
+/sys/src/libdraw/drawrepl.c
+/sys/src/libdraw/fmt.c
+/sys/src/libdraw/icossin.c
+/sys/src/libdraw/icossin2.c
+/sys/src/libdraw/rectclip.c
+/sys/src/libdraw/rgb.c

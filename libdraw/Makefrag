@@ -1,0 +1,25 @@
+LIBDRAW_OBJS = \
+	$(addprefix libdraw/, \
+		arith.o \
+		bytesperline.o \
+		chan.o \
+		computil.o \
+		defont.o \
+		drawrepl.o \
+		fmt.o \
+		icossin.o \
+		icossin2.o \
+		rectclip.o \
+		rgb.o \
+	)
+
+libdraw/%.o: libdraw/%.c include/draw.h $(H_FILES)
+	$(HOST_CC) $(HOST_CFLAGS) -I. -Wall -Wno-missing-braces -c -o $@ $<
+
+libdraw/libdraw.a: $(LIBDRAW_OBJS)
+	$(AR) rs $@ $(LIBDRAW_OBJS)
+
+CLEAN_FILES += \
+	libdraw/*.o \
+	libdraw/libdraw.a \
+

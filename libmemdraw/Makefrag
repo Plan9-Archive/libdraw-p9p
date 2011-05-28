@@ -1,0 +1,28 @@
+LIBMEMDRAW_OBJS = \
+	$(addprefix libmemdraw/, \
+		alloc.o \
+		arc.o \
+		cload.o \
+		cmap.o \
+		defont.o \
+		draw.o \
+		ellipse.o \
+		fillpoly.o \
+		line.o \
+		load.o \
+		poly.o \
+		string.o \
+		subfont.o \
+		unload.o \
+	)
+
+libmemdraw/%.o: libmemdraw/%.c include/memdraw.h $(H_FILES)
+	$(HOST_CC) $(HOST_CFLAGS) -I. -Wall -Wno-missing-braces -c -o $@ $<
+
+libmemdraw/libmemdraw.a: $(LIBMEMDRAW_OBJS)
+	$(AR) rs $@ $(LIBMEMDRAW_OBJS)
+
+CLEAN_FILES += \
+	libmemdraw/*.o \
+	libmemdraw/libmemdraw.a \
+
