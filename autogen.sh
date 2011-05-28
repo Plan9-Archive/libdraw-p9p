@@ -25,7 +25,7 @@ autofiles=`cat $1/autogen.files 2>/dev/null` ||
 
 for f in $autofiles
 do
-	out=`echo $f | sed 's;.*/;'$outdir';'`
+	out=`echo $f | sed 's;.*/;'$outdir'/;'`
 	ed=`echo $out | sed 's;\.[ch]$;.ed;'`
 	echo $f '->' $out >&2
 	test -f $out && chmod +w $out
