@@ -1,7 +1,19 @@
 libdrawp
 ==========
 
-libdraw port (from Plan 9)
+libdraw port (from Plan 9).
 
-This port includes stand-alone versions of
-Plan 9's libdraw, libmemdraw and libmemlayer.
+This port includes unix versions of Plan 9's libdraw, libmemdraw and
+libmemlayer.
+
+To regenerate  the library files from Plan 9 source, use the 'autogen' make
+target and set 'plan9' to the root of the Plan 9 system. For example:
+
+	make autogen plan9=$HOME/sysfromiso
+
+This will overwrite the current files, so use with caution.
+
+To compile:
+
+	make
+

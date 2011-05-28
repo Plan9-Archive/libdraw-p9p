@@ -58,7 +58,6 @@ _memimagedraw(Memdrawparam *par)
 /^}/a
 #endif
 .
-/^memsets
 ,s/Replsrc|Simplesrc/Replsrc|Simplesrc|Fullsrc/g
 /par.srgba\&0xFF/i
 			if((par.srgba&0xFF) == 0xFF)

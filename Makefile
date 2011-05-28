@@ -37,6 +37,12 @@ LIBS = \
 # Make sure that 'all' is the first target
 all: $(LIBS)
 
+# regenerate .c files from Plan 9 source
+AUTOGEN = include libdraw libmemdraw libmemlayer
+autogen: $(AUTOGEN:%=%.autogen)
+%.autogen:
+	test -d "$(plan9)" && ./autogen.sh $(@:%.autogen=%)
+
 # Include Makefrags for subdirectories
 include libdraw/Makefrag
 include libmemlayer/Makefrag

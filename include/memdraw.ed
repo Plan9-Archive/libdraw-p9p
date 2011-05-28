@@ -1,7 +1,11 @@
-,s/allocmemimaged(Rectangle, ulong, Memdata\*)/allocmemimaged(Rectangle, ulong, Memdata*, void*)/
-/nbits\[NChan\]/a
+/^struct Memimage/; /^}/i
 	void	*x;
 .
+/Fullmask=1<<4/c
+	Fullsrc=1<<4,
+	Fullmask=1<<5,
+.
+/allocmemimaged/ s/)/, void*)/
 $a
 
 extern Memimage*	_allocmemimage(Rectangle, ulong);
@@ -21,8 +25,3 @@ extern ulong rgbatoimg(Memimage*, ulong);
 extern ulong pixelbits(Memimage*, Point);
 extern ulong imgtorgba(Memimage*, ulong);
 .
-/Fullmask=1<<4/c
-	Fullsrc=1<<4,
-	Fullmask=1<<5,
-.
-,s/ulong/uint32/g

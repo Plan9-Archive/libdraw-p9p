@@ -5,7 +5,7 @@
 # of ed scripts that we can run on the originals to produce 
 # the versions we need.
 #
-# Note that the headers are in ./
+# Note that the headers are in ./ and include/
 
 fatal() {
 	echo $* >&2
@@ -20,13 +20,14 @@ case "$#" in
 	fatal "usage: $0 dir"
 esac
 
-autofiles=`cat $1/autogen.files` || fatal "$0: could not read $outdir/autogen.files"
+autofiles=`cat $1/autogen.files 2>/dev/null` ||
+	fatal "$0: could not read $outdir/autogen.files"
 
 for f in $autofiles
 do
-	ed=`echo $f | sed 's;.*/;;; s;\.[ch]$;;; s;$;.ed;'`
-	out=`echo $f | sed 's;.*/;'$outdir'/;'`
-	echo $f '->' $out
+	out=`echo $f | sed 's;.*/;'$outdir';'`
+	ed=`echo $out | sed 's;\.[ch]$;.ed;'`
+	echo $f '->' $out >&2
 	test -f $out && chmod +w $out
 	(
 		echo ',s;"../port/;";g'
@@ -35,7 +36,7 @@ do
 		echo ',s;>FIXINCLUDEME;";g'
 		echo ',s;"libc.h";"lib.h";g'
 		echo 'g/#pragma/d'
-		echo 'g/#include "pool/d'
+		echo '/#include "pool\.h"/d'
 		test -f $ed && cat $ed
 		echo w $out
 		echo q

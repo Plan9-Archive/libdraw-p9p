@@ -10,32 +10,22 @@ static int	tablesbuilt;
 #define RGB2K(r,g,b)	((156763*(r)+307758*(g)+59769*(b))>>19)
 
 /*
- * For 16-bit values, x / 255 == (t = x+1, (t+(t>>8)) >> 8).
- * We add another 127 to round to the nearest value rather
- * than truncate.
- *
- * CALCxy does x bytewise calculations on y input images (x=1,4; y=1,2).
- * CALC2x does two parallel 16-bit calculations on y input images (y=1,2).
+ * for 0 ≤ x ≤ 255*255, (x*0x0101+0x100)>>16 is a perfect approximation.
+ * for 0 ≤ x < (1<<16), x/255 = ((x+1)*0x0101)>>16 is a perfect approximation.
+ * the last one is perfect for all up to 1<<16, avoids a multiply, but requires a rathole.
  */
-#define CALC11(a, v, tmp) \
- (tmp=(a)*(v)+128, (tmp+(tmp>>8))>>8)
-#define CALC12(a1, v1, a2, v2, tmp) \
- (tmp=(a1)*(v1)+(a2)*(v2)+128, (tmp+(tmp>>8))>>8)
-#define MASK 0xFF00FF
+/* #define DIV255(x) (((x)*257+256)>>16)  */
+#define DIV255(x) ((((x)+1)*257)>>16)
+/* #define DIV255(x) (tmp=(x)+1, (tmp+(tmp>>8))>>8) */
 
-#define CALC21(a, vvuu, tmp) \
- (tmp=(a)*(vvuu)+0x00800080, ((tmp+((tmp>>8)&MASK))>>8)&MASK)
+#define MUL(x, y, t)	(t = (x)*(y)+128, (t+(t>>8))>>8)
+#define MASK13	0xFF00FF00
+#define MASK02	0x00FF00FF
+#define MUL13(a, x, t)		(t = (a)*(((x)&MASK13)>>8)+128, ((t+((t>>8)&MASK02))>>8)&MASK02)
+#define MUL02(a, x, t)		(t = (a)*(((x)&MASK02)>>0)+128, ((t+((t>>8)&MASK02))>>8)&MASK02)
+#define MUL0123(a, x, s, t)	((MUL13(a, x, s)<<8)|MUL02(a, x, t))
 
-#define CALC41(a, rgba, tmp1, tmp2) \
- (CALC21(a, rgba & MASK, tmp1) | \
- (CALC21(a, (rgba>>8)&MASK, tmp2)<<8))
-
-#define CALC22(a1, vvuu1, a2, vvuu2, tmp) \
- (tmp=(a1)*(vvuu1)+(a2)*(vvuu2)+0x00800080, ((tmp+((tmp>>8)&MASK))>>8)&MASK)
-
-#define CALC42(a1, rgba1, a2, rgba2, tmp1, tmp2) \
- (CALC22(a1, rgba1 & MASK, a2, rgba2 & MASK, tmp1) | \
- (CALC22(a1, (rgba1>>8) & MASK, a2, (rgba2>>8) & MASK, tmp2)<<8))
+#define MUL2(u, v, x, y)	(t = (u)*(v)+(x)*(y)+256, (t+(t>>8))>>8)
 
 static void mktables(void);
 typedef int Subdraw(Memdrawparam*);
@@ -396,7 +386,7 @@ struct Buffer {
 	uchar	*blu;
 	uchar	*alpha;
 	uchar	*grey;
-	uint32	*rgba;
+	ulong	*rgba;
 	int	delta;	/* number of bytes to add to pointer to get next pixel to the right */
 
 	/* used by boolcalc* for mask data */
@@ -438,7 +428,7 @@ struct Param {
 
 	int	replcache;	/* if set, cache buffers */
 	Buffer	bcache[MAXBCACHE];
-	uint32	bfilled;
+	ulong	bfilled;
 	uchar	*bufbase;
 	int	bufoff;
 	int	bufdelta;
@@ -496,7 +486,6 @@ static Calcfn *boolcalc[Ncomp] =
 };
 
 /*
- * Avoid standard Lock, QLock so that can be used in kernel.
  */
 typedef struct Dbuf Dbuf;
 struct Dbuf
@@ -541,7 +530,7 @@ getparam(Param *p, Memimage *img, Rectangle r, int convgrey, int needbuf, int *n
 	p->bytey0s = byteaddr(img, Pt(img->r.min.x, img->r.min.y));
 	p->bytermin = byteaddr(img, Pt(r.min.x, img->r.min.y));
 	p->bytey0e = byteaddr(img, Pt(img->r.max.x, img->r.min.y));
-	p->bwidth = sizeof(uint32)*img->width;
+	p->bwidth = sizeof(ulong)*img->width;
 
 	assert(p->bytey0s <= p->bytermin && p->bytermin <= p->bytey0e);
 
@@ -813,85 +802,41 @@ alphacalc0(Buffer bdst, Buffer b1, Buffer b2, int dx, int grey, int op)
 	return bdst;
 }
 
-/*
- * Do the channels in the buffers match enough
- * that we can do word-at-a-time operations
- * on the pixels?
- */
-static int
-chanmatch(Buffer *bdst, Buffer *bsrc)
-{
-	uchar *drgb, *srgb;
-	
-	/*
-	 * first, r, g, b must be in the same place
-	 * in the rgba word.
-	 */
-	drgb = (uchar*)bdst->rgba;
-	srgb = (uchar*)bsrc->rgba;
-	if(bdst->red - drgb != bsrc->red - srgb
-	|| bdst->blu - drgb != bsrc->blu - srgb
-	|| bdst->grn - drgb != bsrc->grn - srgb)
-		return 0;
-	
-	/*
-	 * that implies alpha is in the same place,
-	 * if it is there at all (it might be == &ones).
-	 * if the destination is &ones, we can scribble
-	 * over the rgba slot just fine.
-	 */
-	if(bdst->alpha == &ones)
-		return 1;
-	
-	/*
-	 * if the destination is not ones but the src is,
-	 * then the simultaneous calculation will use
-	 * bogus bytes from the src's rgba.  no good.
-	 */
-	if(bsrc->alpha == &ones)
-		return 0;
-	
-	/*
-	 * otherwise, alphas are in the same place.
-	 */
-	return 1;
-}
-
 static Buffer
 alphacalc14(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 {
 	Buffer obdst;
 	int fd, sadelta;
 	int i, sa, ma, q;
-	uint32 t, t1;
+	ulong s, t;
 
 	obdst = bdst;
 	sadelta = bsrc.alpha == &ones ? 0 : bsrc.delta;
-	q = bsrc.delta == 4 && bdst.delta == 4 && chanmatch(&bdst, &bsrc);
+	q = bsrc.delta == 4 && bdst.delta == 4;
 
 	for(i=0; i<dx; i++){
 		sa = *bsrc.alpha;
 		ma = *bmask.alpha;
-		fd = CALC11(sa, ma, t);
+		fd = MUL(sa, ma, t);
 		if(op == DoutS)
 			fd = 255-fd;
 
 		if(grey){
-			*bdst.grey = CALC11(fd, *bdst.grey, t);
+			*bdst.grey = MUL(fd, *bdst.grey, t);
 			bsrc.grey += bsrc.delta;
 			bdst.grey += bdst.delta;
 		}else{
 			if(q){
-				*bdst.rgba = CALC41(fd, *bdst.rgba, t, t1);
+				*bdst.rgba = MUL0123(fd, *bdst.rgba, s, t);
 				bsrc.rgba++;
 				bdst.rgba++;
 				bsrc.alpha += sadelta;
 				bmask.alpha += bmask.delta;
 				continue;
 			}
-			*bdst.red = CALC11(fd, *bdst.red, t);
-			*bdst.grn = CALC11(fd, *bdst.grn, t);
-			*bdst.blu = CALC11(fd, *bdst.blu, t);
+			*bdst.red = MUL(fd, *bdst.red, t);
+			*bdst.grn = MUL(fd, *bdst.grn, t);
+			*bdst.blu = MUL(fd, *bdst.blu, t);
 			bsrc.red += bsrc.delta;
 			bsrc.blu += bsrc.delta;
 			bsrc.grn += bsrc.delta;
@@ -900,7 +845,7 @@ alphacalc14(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 			bdst.grn += bdst.delta;
 		}
 		if(bdst.alpha != &ones){
-			*bdst.alpha = CALC11(fd, *bdst.alpha, t);
+			*bdst.alpha = MUL(fd, *bdst.alpha, t);
 			bdst.alpha += bdst.delta;
 		}
 		bmask.alpha += bmask.delta;
@@ -915,11 +860,11 @@ alphacalc2810(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 	Buffer obdst;
 	int fs, sadelta;
 	int i, ma, da, q;
-	uint32 t, t1;
+	ulong s, t;
 
 	obdst = bdst;
 	sadelta = bsrc.alpha == &ones ? 0 : bsrc.delta;
-	q = bsrc.delta == 4 && bdst.delta == 4 && chanmatch(&bdst, &bsrc);
+	q = bsrc.delta == 4 && bdst.delta == 4;
 
 	for(i=0; i<dx; i++){
 		ma = *bmask.alpha;
@@ -928,24 +873,24 @@ alphacalc2810(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 			da = 255-da;
 		fs = ma;
 		if(op != S)
-			fs = CALC11(fs, da, t);
+			fs = MUL(fs, da, t);
 
 		if(grey){
-			*bdst.grey = CALC11(fs, *bsrc.grey, t);
+			*bdst.grey = MUL(fs, *bsrc.grey, t);
 			bsrc.grey += bsrc.delta;
 			bdst.grey += bdst.delta;
 		}else{
 			if(q){
-				*bdst.rgba = CALC41(fs, *bsrc.rgba, t, t1);
+				*bdst.rgba = MUL0123(fs, *bsrc.rgba, s, t);
 				bsrc.rgba++;
 				bdst.rgba++;
 				bmask.alpha += bmask.delta;
 				bdst.alpha += bdst.delta;
 				continue;
 			}
-			*bdst.red = CALC11(fs, *bsrc.red, t);
-			*bdst.grn = CALC11(fs, *bsrc.grn, t);
-			*bdst.blu = CALC11(fs, *bsrc.blu, t);
+			*bdst.red = MUL(fs, *bsrc.red, t);
+			*bdst.grn = MUL(fs, *bsrc.grn, t);
+			*bdst.blu = MUL(fs, *bsrc.blu, t);
 			bsrc.red += bsrc.delta;
 			bsrc.blu += bsrc.delta;
 			bsrc.grn += bsrc.delta;
@@ -954,7 +899,7 @@ alphacalc2810(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 			bdst.grn += bdst.delta;
 		}
 		if(bdst.alpha != &ones){
-			*bdst.alpha = CALC11(fs, *bsrc.alpha, t);
+			*bdst.alpha = MUL(fs, *bsrc.alpha, t);
 			bdst.alpha += bdst.delta;
 		}
 		bmask.alpha += bmask.delta;
@@ -969,35 +914,35 @@ alphacalc3679(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 	Buffer obdst;
 	int fs, fd, sadelta;
 	int i, sa, ma, da, q;
-	uint32 t, t1;
+	ulong s, t, u, v;
 
 	obdst = bdst;
 	sadelta = bsrc.alpha == &ones ? 0 : bsrc.delta;
-	q = bsrc.delta == 4 && bdst.delta == 4 && chanmatch(&bdst, &bsrc);
+	q = bsrc.delta == 4 && bdst.delta == 4;
 
 	for(i=0; i<dx; i++){
 		sa = *bsrc.alpha;
 		ma = *bmask.alpha;
 		da = *bdst.alpha;
 		if(op == SatopD)
-			fs = CALC11(ma, da, t);
+			fs = MUL(ma, da, t);
 		else
-			fs = CALC11(ma, 255-da, t);
+			fs = MUL(ma, 255-da, t);
 		if(op == DoverS)
 			fd = 255;
 		else{
-			fd = CALC11(sa, ma, t);
+			fd = MUL(sa, ma, t);
 			if(op != DatopS)
 				fd = 255-fd;
 		}
 
 		if(grey){
-			*bdst.grey = CALC12(fs, *bsrc.grey, fd, *bdst.grey, t);
+			*bdst.grey = MUL(fs, *bsrc.grey, s)+MUL(fd, *bdst.grey, t);
 			bsrc.grey += bsrc.delta;
 			bdst.grey += bdst.delta;
 		}else{
 			if(q){
-				*bdst.rgba = CALC42(fs, *bsrc.rgba, fd, *bdst.rgba, t, t1);
+				*bdst.rgba = MUL0123(fs, *bsrc.rgba, s, t)+MUL0123(fd, *bdst.rgba, u, v);
 				bsrc.rgba++;
 				bdst.rgba++;
 				bsrc.alpha += sadelta;
@@ -1005,9 +950,9 @@ alphacalc3679(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 				bdst.alpha += bdst.delta;
 				continue;
 			}
-			*bdst.red = CALC12(fs, *bsrc.red, fd, *bdst.red, t);
-			*bdst.grn = CALC12(fs, *bsrc.grn, fd, *bdst.grn, t);
-			*bdst.blu = CALC12(fs, *bsrc.blu, fd, *bdst.blu, t);
+			*bdst.red = MUL(fs, *bsrc.red, s)+MUL(fd, *bdst.red, t);
+			*bdst.grn = MUL(fs, *bsrc.grn, s)+MUL(fd, *bdst.grn, t);
+			*bdst.blu = MUL(fs, *bsrc.blu, s)+MUL(fd, *bdst.blu, t);
 			bsrc.red += bsrc.delta;
 			bsrc.blu += bsrc.delta;
 			bsrc.grn += bsrc.delta;
@@ -1016,7 +961,7 @@ alphacalc3679(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 			bdst.grn += bdst.delta;
 		}
 		if(bdst.alpha != &ones){
-			*bdst.alpha = CALC12(fs, sa, fd, da, t);
+			*bdst.alpha = MUL(fs, sa, s)+MUL(fd, da, t);
 			bdst.alpha += bdst.delta;
 		}
 		bmask.alpha += bmask.delta;
@@ -1042,34 +987,34 @@ alphacalc11(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 	Buffer obdst;
 	int fd, sadelta;
 	int i, sa, ma, q;
-	uint32 t, t1;
+	ulong s, t, u, v;
 
 	USED(op);
 	obdst = bdst;
 	sadelta = bsrc.alpha == &ones ? 0 : bsrc.delta;
-	q = bsrc.delta == 4 && bdst.delta == 4 && chanmatch(&bdst, &bsrc);
+	q = bsrc.delta == 4 && bdst.delta == 4;
 
 	for(i=0; i<dx; i++){
 		sa = *bsrc.alpha;
 		ma = *bmask.alpha;
-		fd = 255-CALC11(sa, ma, t);
+		fd = 255-MUL(sa, ma, t);
 
 		if(grey){
-			*bdst.grey = CALC12(ma, *bsrc.grey, fd, *bdst.grey, t);
+			*bdst.grey = MUL(ma, *bsrc.grey, s)+MUL(fd, *bdst.grey, t);
 			bsrc.grey += bsrc.delta;
 			bdst.grey += bdst.delta;
 		}else{
 			if(q){
-				*bdst.rgba = CALC42(ma, *bsrc.rgba, fd, *bdst.rgba, t, t1);
+				*bdst.rgba = MUL0123(ma, *bsrc.rgba, s, t)+MUL0123(fd, *bdst.rgba, u, v);
 				bsrc.rgba++;
 				bdst.rgba++;
 				bsrc.alpha += sadelta;
 				bmask.alpha += bmask.delta;
 				continue;
 			}
-			*bdst.red = CALC12(ma, *bsrc.red, fd, *bdst.red, t);
-			*bdst.grn = CALC12(ma, *bsrc.grn, fd, *bdst.grn, t);
-			*bdst.blu = CALC12(ma, *bsrc.blu, fd, *bdst.blu, t);
+			*bdst.red = MUL(ma, *bsrc.red, s)+MUL(fd, *bdst.red, t);
+			*bdst.grn = MUL(ma, *bsrc.grn, s)+MUL(fd, *bdst.grn, t);
+			*bdst.blu = MUL(ma, *bsrc.blu, s)+MUL(fd, *bdst.blu, t);
 			bsrc.red += bsrc.delta;
 			bsrc.blu += bsrc.delta;
 			bsrc.grn += bsrc.delta;
@@ -1078,7 +1023,7 @@ alphacalc11(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 			bdst.grn += bdst.delta;
 		}
 		if(bdst.alpha != &ones){
-			*bdst.alpha = CALC12(ma, sa, fd, *bdst.alpha, t);
+			*bdst.alpha = MUL(ma, sa, s)+MUL(fd, *bdst.alpha, t);
 			bdst.alpha += bdst.delta;
 		}
 		bmask.alpha += bmask.delta;
@@ -1134,7 +1079,7 @@ alphacalcS(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 	Buffer obdst;
 	int fd;
 	int i, ma;
-	uint32 t;
+	ulong s, t;
 
 	USED(op);
 	obdst = bdst;
@@ -1144,13 +1089,13 @@ alphacalcS(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 		fd = 255-ma;
 
 		if(grey){
-			*bdst.grey = CALC12(ma, *bsrc.grey, fd, *bdst.grey, t);
+			*bdst.grey = MUL(ma, *bsrc.grey, s)+MUL(fd, *bdst.grey, t);
 			bsrc.grey += bsrc.delta;
 			bdst.grey += bdst.delta;
 		}else{
-			*bdst.red = CALC12(ma, *bsrc.red, fd, *bdst.red, t);
-			*bdst.grn = CALC12(ma, *bsrc.grn, fd, *bdst.grn, t);
-			*bdst.blu = CALC12(ma, *bsrc.blu, fd, *bdst.blu, t);
+			*bdst.red = MUL(ma, *bsrc.red, s)+MUL(fd, *bdst.red, t);
+			*bdst.grn = MUL(ma, *bsrc.grn, s)+MUL(fd, *bdst.grn, t);
+			*bdst.blu = MUL(ma, *bsrc.blu, s)+MUL(fd, *bdst.blu, t);
 			bsrc.red += bsrc.delta;
 			bsrc.blu += bsrc.delta;
 			bsrc.grn += bsrc.delta;
@@ -1159,7 +1104,7 @@ alphacalcS(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 			bdst.grn += bdst.delta;
 		}
 		if(bdst.alpha != &ones){
-			*bdst.alpha = ma+CALC11(fd, *bdst.alpha, t);
+			*bdst.alpha = ma+MUL(fd, *bdst.alpha, t);
 			bdst.alpha += bdst.delta;
 		}
 		bmask.alpha += bmask.delta;
@@ -1208,7 +1153,7 @@ boolcalc236789(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 	Buffer obdst;
 	int fs, fd;
 	int i, ma, da, zero;
-	uint32 t;
+	ulong s, t;
 
 	obdst = bdst;
 	zero = !(op&1);
@@ -1225,16 +1170,16 @@ boolcalc236789(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 
 		if(grey){
 			if(ma)
-				*bdst.grey = CALC12(fs, *bsrc.grey, fd, *bdst.grey, t);
+				*bdst.grey = MUL(fs, *bsrc.grey, s)+MUL(fd, *bdst.grey, t);
 			else if(zero)
 				*bdst.grey = 0;
 			bsrc.grey += bsrc.delta;
 			bdst.grey += bdst.delta;
 		}else{
 			if(ma){
-				*bdst.red = CALC12(fs, *bsrc.red, fd, *bdst.red, t);
-				*bdst.grn = CALC12(fs, *bsrc.grn, fd, *bdst.grn, t);
-				*bdst.blu = CALC12(fs, *bsrc.blu, fd, *bdst.blu, t);
+				*bdst.red = MUL(fs, *bsrc.red, s)+MUL(fd, *bdst.red, t);
+				*bdst.grn = MUL(fs, *bsrc.grn, s)+MUL(fd, *bdst.grn, t);
+				*bdst.blu = MUL(fs, *bsrc.blu, s)+MUL(fd, *bdst.blu, t);
 			}
 			else if(zero)
 				*bdst.red = *bdst.grn = *bdst.blu = 0;
@@ -1248,7 +1193,7 @@ boolcalc236789(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int grey, int op)
 		bmask.alpha += bmask.delta;
 		if(bdst.alpha != &ones){
 			if(ma)
-				*bdst.alpha = fs+CALC11(fd, da, t);
+				*bdst.alpha = fs+MUL(fd, da, t);
 			else if(zero)
 				*bdst.alpha = 0;
 			bdst.alpha += bdst.delta;
@@ -1343,7 +1288,7 @@ readnbit(Param *p, uchar *buf, int y)
 	memset(&b, 0, sizeof b); // shut up gcc
 	int i, n, sh, depth, x, dx, npack, nbits;
 
-	b.rgba = (uint32*)buf;
+	b.rgba = (ulong*)buf;
 	b.grey = w = buf;
 	b.red = b.blu = b.grn = w;
 	b.alpha = &ones;
@@ -1433,7 +1378,7 @@ static void
 writenbit(Param *p, uchar *w, Buffer src)
 {
 	uchar *r;
-	uint32 bits;
+	ulong bits;
 	int i, sh, depth, npack, nbits, x, ex;
 
 	assert(src.grey != nil && src.delta == 1);
@@ -1522,7 +1467,7 @@ readcmap(Param *p, uchar *buf, int y)
 		}
 	}
 
-	b.rgba = (uint32*)(buf-copyalpha);
+	b.rgba = (ulong*)(buf-copyalpha);
 
 	if(convgrey){
 		b.grey = buf;
@@ -1565,7 +1510,7 @@ readbyte(Param *p, uchar *buf, int y)
 	int dx, isgrey, convgrey, alphaonly, copyalpha, i, nb;
 	uchar *begin, *end, *r, *w, *rrepl, *grepl, *brepl, *arepl, *krepl;
 	uchar ured, ugrn, ublu;
-	uint32 u;
+	ulong u;
 
 	img = p->img;
 	begin = p->bytey0s + y*p->bwidth;
@@ -1589,7 +1534,7 @@ DBG print("copyalpha %d alphaonly %d convgrey %d isgrey %d\n", copyalpha, alphao
 			memmove(buf, r, dx*nb);
 			r = buf;
 		}
-		b.rgba = (uint32*)r;
+		b.rgba = (ulong*)r;
 		if(copyalpha)
 			b.alpha = r+img->shift[CAlpha]/8;
 		else
@@ -1642,7 +1587,7 @@ DBG print("%x\n", w[-1]);
 	}
 	
 	b.alpha = copyalpha ? buf : &ones;
-	b.rgba = (uint32*)buf;
+	b.rgba = (ulong*)buf;
 	if(alphaonly){
 		b.red = b.grn = b.blu = b.grey = nil;
 		if(!copyalpha)
@@ -1671,7 +1616,7 @@ writebyte(Param *p, uchar *w, Buffer src)
 	Memimage *img;
 	int i, isalpha, isgrey, nb, delta, dx, adelta;
 	uchar ff, *red, *grn, *blu, *grey, *alpha;
-	uint32 u, mask;
+	ulong u, mask;
 
 	img = p->img;
 
@@ -1776,7 +1721,7 @@ readptr(Param *p, uchar *s, int y)
 	q = p->bytermin + y*p->bwidth;
 	b.red = q;	/* ptr to data */
 	b.grn = b.blu = b.grey = b.alpha = nil;
-	b.rgba = (uint32*)q;
+	b.rgba = (ulong*)q;
 	b.delta = p->img->depth/8;
 	return b;
 }
@@ -1856,13 +1801,13 @@ static Buffer
 boolcopy32(Buffer bdst, Buffer bsrc, Buffer bmask, int dx, int i, int o)
 {
 	uchar *m;
-	uint32 *r, *w, *ew;
+	ulong *r, *w, *ew;
 
 	USED(i);
 	USED(o);
 	m = bmask.grey;
-	w = (uint32*)bdst.red;
-	r = (uint32*)bsrc.red;
+	w = (ulong*)bdst.red;
+	r = (ulong*)bsrc.red;
 	ew = w+dx;
 	for(; w < ew; w++,r++)
 		if(*m++)
@@ -1894,7 +1839,7 @@ genconv(Param *p, uchar *buf, int y)
 
 	b.red = buf;
 	b.blu = b.grn = b.grey = b.alpha = nil;
-	b.rgba = (uint32*)buf;
+	b.rgba = (ulong*)buf;
 	b.delta = 0;
 	
 	return b;
@@ -1931,11 +1876,11 @@ convfn(Memimage *dst, Param *dpar, Memimage *src, Param *spar, int *ndrawbuf)
 	return genconv;
 }
 
-uint32
+ulong
 _pixelbits(Memimage *i, Point pt)
 {
 	uchar *p;
-	uint32 val;
+	ulong val;
 	int off, bpp, npack;
 
 	val = 0;
@@ -2018,9 +1963,9 @@ memsets(void *vp, ushort val, int n)
 }
 
 static void
-memsetl(void *vp, uint32 val, int n)
+memsetl(void *vp, ulong val, int n)
 {
-	uint32 *p, *ep;
+	ulong *p, *ep;
 
 	p = vp;
 	ep = p+n;
@@ -2029,7 +1974,7 @@ memsetl(void *vp, uint32 val, int n)
 }
 
 static void
-memset24(void *vp, uint32 val, int n)
+memset24(void *vp, ulong val, int n)
 {
 	uchar *p, *ep;
 	uchar a,b,c;
@@ -2046,12 +1991,12 @@ memset24(void *vp, uint32 val, int n)
 	}
 }
 
-uint32
-_imgtorgba(Memimage *img, uint32 val)
+ulong
+_imgtorgba(Memimage *img, ulong val)
 {
 	uchar r, g, b, a;
 	int nb, ov, v;
-	uint32 chan;
+	ulong chan;
 	uchar *p;
 
 	a = 0xFF;
@@ -2094,12 +2039,12 @@ _imgtorgba(Memimage *img, uint32 val)
 	return (r<<24)|(g<<16)|(b<<8)|a;	
 }
 
-uint32
-_rgbatoimg(Memimage *img, uint32 rgba)
+ulong
+_rgbatoimg(Memimage *img, ulong rgba)
 {
-	uint32 chan;
+	ulong chan;
 	int d, nb;
-	uint32 v;
+	ulong v;
 	uchar *p, r, g, b, a, m;
 
 	v = 0;
@@ -2144,7 +2089,7 @@ static int
 memoptdraw(Memdrawparam *par)
 {
 	int m, y, dy, dx, op;
-	uint32 v;
+	ulong v;
 	Memimage *src;
 	Memimage *dst;
 
@@ -2166,7 +2111,7 @@ DBG print("state %lux mval %lux dd %d\n", par->state, par->mval, dst->depth);
 		uchar lm, rm;
 
 DBG print("memopt, dst %p, dst->data->bdata %p\n", dst, dst->data->bdata);
-		dwid = dst->width*sizeof(uint32);
+		dwid = dst->width*sizeof(ulong);
 		dp = byteaddr(dst, par->r.min);
 		v = par->sdval;
 DBG print("sdval %lud, depth %d\n", v, dst->depth);
@@ -2249,7 +2194,7 @@ DBG print("dp=%p; dx=%d; for(y=0; y<%d; y++, dp+=%d)\nmemsets(dp, v, dx);\n",
 			p[1] = v>>8;
 			p[2] = v>>16;
 			p[3] = v>>24;
-			v = *(uint32*)p;
+			v = *(ulong*)p;
 			for(y=0; y<dy; y++, dp+=dwid)
 				memsetl(dp, v, dx);
 			return 1;
@@ -2275,8 +2220,8 @@ DBG print("dp=%p; dx=%d; for(y=0; y<%d; y++, dp+=%d)\nmemsets(dp, v, dx);\n",
 		else
 			dir = 1;
 
-		swid = src->width*sizeof(uint32);
-		dwid = dst->width*sizeof(uint32);
+		swid = src->width*sizeof(ulong);
+		dwid = dst->width*sizeof(ulong);
 		sp = byteaddr(src, par->sr.min);
 		dp = byteaddr(dst, par->r.min);
 		if(dir == -1){
@@ -2307,9 +2252,9 @@ DBG print("dp=%p; dx=%d; for(y=0; y<%d; y++, dp+=%d)\nmemsets(dp, v, dx);\n",
 		sp = byteaddr(src, par->sr.min);
 		dp = byteaddr(dst, par->r.min);
 		mp = byteaddr(par->mask, par->mr.min);
-		swid = src->width*sizeof(uint32);
-		dwid = dst->width*sizeof(uint32);
-		mwid = par->mask->width*sizeof(uint32);
+		swid = src->width*sizeof(ulong);
+		dwid = dst->width*sizeof(ulong);
+		mwid = par->mask->width*sizeof(ulong);
 
 		if(src->data == dst->data && byteaddr(dst, par->r.min) > byteaddr(src, par->sr.min)){
 			dir = -1;
@@ -2398,12 +2343,12 @@ DBG print("dp=%p; dx=%d; for(y=0; y<%d; y++, dp+=%d)\nmemsets(dp, v, dx);\n",
 static int
 chardraw(Memdrawparam *par)
 {
-	uint32 bits;
+	ulong bits;
 	int i, ddepth, dy, dx, x, bx, ex, y, npack, bsh, depth, op;
-	uint32 v, maskwid, dstwid;
+	ulong v, maskwid, dstwid;
 	uchar *wp, *rp, *q, *wc;
 	ushort *ws;
-	uint32 *wl;
+	ulong *wl;
 	uchar sp[4];
 	Rectangle r, mr;
 	Memimage *mask, *src, *dst;
@@ -2427,13 +2372,13 @@ if(0) if(drawdebug) iprint("chardraw? mf %lux md %d sf %lux dxs %d dys %d dd %d 
 //if(drawdebug) iprint("chardraw...");
 
 	depth = mask->depth;
-	maskwid = mask->width*sizeof(uint32);
+	maskwid = mask->width*sizeof(ulong);
 	rp = byteaddr(mask, mr.min);
 	npack = 8/depth;
 	bsh = (mr.min.x % npack) * depth;
 
 	wp = byteaddr(dst, r.min);
-	dstwid = dst->width*sizeof(uint32);
+	dstwid = dst->width*sizeof(ulong);
 DBG print("bsh %d\n", bsh);
 	dy = Dy(r);
 	dx = Dx(r);
@@ -2505,8 +2450,8 @@ DBG print("bits %lux sh %d...", bits, i);
 			}
 			break;
 		case 32:
-			wl = (uint32*)wp;
-			v = *(uint32*)sp;
+			wl = (ulong*)wp;
+			v = *(ulong*)sp;
 			for(x=bx; x>ex; x--, wl++){
 				i = x&7;
 				if(i == 8-1)
@@ -2531,7 +2476,7 @@ DBG print("\n");
  *
  * This code is just plain wrong for >8bpp.
  *
-uint32
+ulong
 membyteval(Memimage *src)
 {
 	int i, val, bpp;
@@ -2551,9 +2496,9 @@ membyteval(Memimage *src)
  */
 
 void
-_memfillcolor(Memimage *i, uint32 val)
+_memfillcolor(Memimage *i, ulong val)
 {
-	uint32 bits;
+	ulong bits;
 	int d, y;
 
 	if(val == DNofill)
