@@ -1,0 +1,208 @@
+# patch/sorry/memdraw32bit
+1197c
+				*bdst.alpha = fs+CALC11(fd, da, t);
+.
+1181,1183c
+				*bdst.red = CALC12(fs, *bsrc.red, fd, *bdst.red, t);
+				*bdst.grn = CALC12(fs, *bsrc.grn, fd, *bdst.grn, t);
+				*bdst.blu = CALC12(fs, *bsrc.blu, fd, *bdst.blu, t);
+.
+1174c
+				*bdst.grey = CALC12(fs, *bsrc.grey, fd, *bdst.grey, t);
+.
+1157c
+	ulong t;
+.
+1108c
+			*bdst.alpha = ma+CALC11(fd, *bdst.alpha, t);
+.
+1097,1099c
+			*bdst.red = CALC12(ma, *bsrc.red, fd, *bdst.red, t);
+			*bdst.grn = CALC12(ma, *bsrc.grn, fd, *bdst.grn, t);
+			*bdst.blu = CALC12(ma, *bsrc.blu, fd, *bdst.blu, t);
+.
+1093c
+			*bdst.grey = CALC12(ma, *bsrc.grey, fd, *bdst.grey, t);
+.
+1083c
+	ulong t;
+.
+1027c
+			*bdst.alpha = CALC12(ma, sa, fd, *bdst.alpha, t);
+.
+1016,1018c
+			*bdst.red = CALC12(ma, *bsrc.red, fd, *bdst.red, t);
+			*bdst.grn = CALC12(ma, *bsrc.grn, fd, *bdst.grn, t);
+			*bdst.blu = CALC12(ma, *bsrc.blu, fd, *bdst.blu, t);
+.
+1009c
+				*bdst.rgba = CALC42(ma, *bsrc.rgba, fd, *bdst.rgba, t, t1);
+.
+1004c
+			*bdst.grey = CALC12(ma, *bsrc.grey, fd, *bdst.grey, t);
+.
+1001c
+		fd = 255-CALC11(sa, ma, t);
+.
+996c
+	q = bsrc.delta == 4 && bdst.delta == 4 && chanmatch(&bdst, &bsrc);
+.
+991c
+	ulong t, t1;
+.
+965c
+			*bdst.alpha = CALC12(fs, sa, fd, da, t);
+.
+954,956c
+			*bdst.red = CALC12(fs, *bsrc.red, fd, *bdst.red, t);
+			*bdst.grn = CALC12(fs, *bsrc.grn, fd, *bdst.grn, t);
+			*bdst.blu = CALC12(fs, *bsrc.blu, fd, *bdst.blu, t);
+.
+946c
+				*bdst.rgba = CALC42(fs, *bsrc.rgba, fd, *bdst.rgba, t, t1);
+.
+941c
+			*bdst.grey = CALC12(fs, *bsrc.grey, fd, *bdst.grey, t);
+.
+935c
+			fd = CALC11(sa, ma, t);
+.
+931c
+			fs = CALC11(ma, 255-da, t);
+.
+929c
+			fs = CALC11(ma, da, t);
+.
+922c
+	q = bsrc.delta == 4 && bdst.delta == 4 && chanmatch(&bdst, &bsrc);
+.
+918c
+	ulong t, t1;
+.
+903c
+			*bdst.alpha = CALC11(fs, *bsrc.alpha, t);
+.
+892,894c
+			*bdst.red = CALC11(fs, *bsrc.red, t);
+			*bdst.grn = CALC11(fs, *bsrc.grn, t);
+			*bdst.blu = CALC11(fs, *bsrc.blu, t);
+.
+885c
+				*bdst.rgba = CALC41(fs, *bsrc.rgba, t, t1);
+.
+880c
+			*bdst.grey = CALC11(fs, *bsrc.grey, t);
+.
+877c
+			fs = CALC11(fs, da, t);
+.
+868c
+	q = bsrc.delta == 4 && bdst.delta == 4 && chanmatch(&bdst, &bsrc);
+.
+864c
+	ulong t, t1;
+.
+849c
+			*bdst.alpha = CALC11(fd, *bdst.alpha, t);
+.
+838,840c
+			*bdst.red = CALC11(fd, *bdst.red, t);
+			*bdst.grn = CALC11(fd, *bdst.grn, t);
+			*bdst.blu = CALC11(fd, *bdst.blu, t);
+.
+831c
+				*bdst.rgba = CALC41(fd, *bdst.rgba, t, t1);
+.
+826c
+			*bdst.grey = CALC11(fd, *bdst.grey, t);
+.
+821c
+		fd = CALC11(sa, ma, t);
+.
+816c
+	q = bsrc.delta == 4 && bdst.delta == 4 && chanmatch(&bdst, &bsrc);
+.
+812c
+	ulong t, t1;
+.
+805a
+/*
+ * Do the channels in the buffers match enough
+ * that we can do word-at-a-time operations
+ * on the pixels?
+ */
+static int
+chanmatch(Buffer *bdst, Buffer *bsrc)
+{
+	uchar *drgb, *srgb;
+	
+	/*
+	 * first, r, g, b must be in the same place
+	 * in the rgba word.
+	 */
+	drgb = (uchar*)bdst->rgba;
+	srgb = (uchar*)bsrc->rgba;
+	if(bdst->red - drgb != bsrc->red - srgb
+	|| bdst->blu - drgb != bsrc->blu - srgb
+	|| bdst->grn - drgb != bsrc->grn - srgb)
+		return 0;
+	
+	/*
+	 * that implies alpha is in the same place,
+	 * if it is there at all (it might be == &ones).
+	 * if the destination is &ones, we can scribble
+	 * over the rgba slot just fine.
+	 */
+	if(bdst->alpha == &ones)
+		return 1;
+	
+	/*
+	 * if the destination is not ones but the src is,
+	 * then the simultaneous calculation will use
+	 * bogus bytes from the src's rgba.  no good.
+	 */
+	if(bsrc->alpha == &ones)
+		return 0;
+	
+	/*
+	 * otherwise, alphas are in the same place.
+	 */
+	return 1;
+}
+
+.
+31a
+#define CALC21(a, vvuu, tmp) \
+	(tmp=(a)*(vvuu)+0x00800080, ((tmp+((tmp>>8)&MASK))>>8)&MASK)
+
+#define CALC41(a, rgba, tmp1, tmp2) \
+	(CALC21(a, rgba & MASK, tmp1) | \
+	 (CALC21(a, (rgba>>8)&MASK, tmp2)<<8))
+
+#define CALC22(a1, vvuu1, a2, vvuu2, tmp) \
+	(tmp=(a1)*(vvuu1)+(a2)*(vvuu2)+0x00800080, ((tmp+((tmp>>8)&MASK))>>8)&MASK)
+
+#define CALC42(a1, rgba1, a2, rgba2, tmp1, tmp2) \
+	(CALC22(a1, rgba1 & MASK, a2, rgba2 & MASK, tmp1) | \
+	 (CALC22(a1, (rgba1>>8) & MASK, a2, (rgba2>>8) & MASK, tmp2)<<8))
+
+.
+30c
+#define MASK 0xFF00FF
+.
+23,28c
+#define CALC12(a1, v1, a2, v2, tmp) \
+	(tmp=(a1)*(v1)+(a2)*(v2)+128, (tmp+(tmp>>8))>>8)
+.
+19,21c
+#define CALC11(a, v, tmp) \
+	(tmp=(a)*(v)+128, (tmp+(tmp>>8))>>8)
+.
+15,17c
+ * For 16-bit values, x / 255 == (t = x+1, (t+(t>>8)) >> 8).
+ * We add another 127 to round to the nearest value rather
+ * than truncate.
+ *
+ * CALCxy does x bytewise calculations on y input images (x=1,4; y=1,2).
+ * CALC2x does two parallel 16-bit calculations on y input images (y=1,2).
+.

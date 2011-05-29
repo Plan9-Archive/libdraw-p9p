@@ -30,9 +30,11 @@ for f in $autofiles
 do
 	out=`echo $f | sed 's;.*/;'$outdir'/;'`
 	ed=`echo $out | sed 's;\.[ch]$;.ed;'`
+	patch=`echo $ed | sed 's;\.ed$;.patch;'`
 	echo $f '->' $out >&2
 	test -f $out && chmod +w $out
 	(
+		test -f "$patch" && cat $patch
 		echo ',s;"../port/;";g'
 		echo ',s;#include.*<;#include ";g'
 		echo ',s;#include.*>;&FIXINCLUDEME;g'
