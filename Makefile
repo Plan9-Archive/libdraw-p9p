@@ -41,7 +41,7 @@ all: $(LIBS)
 AUTOGEN = include libdraw libmemdraw libmemlayer
 autogen: $(AUTOGEN:%=%.autogen)
 %.autogen:
-	test -d "$(plan9)" && ./autogen.sh $(@:%.autogen=%)
+	./autogen.sh $(@:%.autogen=%)
 
 # Include Makefrags for subdirectories
 include libdraw/Makefrag

@@ -20,6 +20,9 @@ case "$#" in
 	fatal "usage: $0 dir"
 esac
 
+test -d "$plan9" ||
+	fatal "$0: \$plan9=\"$plan9\" is not a directory"
+
 autofiles=`cat $1/autogen.files 2>/dev/null` ||
 	fatal "$0: could not read $outdir/autogen.files"
 
