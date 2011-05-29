@@ -4,9 +4,9 @@
 
 static char channames[] = "rgbkamx";
 char*
-chantostr(char *buf, ulong cc)
+chantostr(char *buf, uint32 cc)
 {
-	ulong c, rc;
+	uint32 c, rc;
 	char *p;
 
 	if(chantodepth(cc) == 0)
@@ -36,11 +36,11 @@ draw_isspace(char c)
 	return c==' ' || c== '\t' || c=='\r' || c=='\n';
 }
 
-ulong
+uint32
 strtochan(char *s)
 {
 	char *p, *q;
-	ulong c;
+	uint32 c;
 	int t, n, d;
 
 	c = 0;
@@ -66,7 +66,7 @@ strtochan(char *s)
 }
 
 int
-chantodepth(ulong c)
+chantodepth(uint32 c)
 {
 	int n;
 

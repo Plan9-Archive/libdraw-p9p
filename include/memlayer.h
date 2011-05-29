@@ -33,7 +33,7 @@ int			memunload(Memimage*, Rectangle, uchar*, int);
  * All these functions accept screen coordinates, not local ones.
  */
 void			_memlayerop(void (*fn)(Memimage*, Rectangle, Rectangle, void*, int), Memimage*, Rectangle, Rectangle, void*);
-Memimage*	memlalloc(Memscreen*, Rectangle, Refreshfn, void*, ulong);
+Memimage*	memlalloc(Memscreen*, Rectangle, Refreshfn, void*, uint32);
 void			memldelete(Memimage*);
 void			memlfree(Memimage*);
 void			memltofront(Memimage*);

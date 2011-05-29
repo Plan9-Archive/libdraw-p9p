@@ -6,7 +6,7 @@ static
 int
 unitsperline(Rectangle r, int d, int bitsperunit)
 {
-	ulong l, t;
+	uint32 l, t;
 
 	if(d <= 0 || d > 32)	/* being called wrong.  d is image depth. */
 		abort();
@@ -24,7 +24,7 @@ unitsperline(Rectangle r, int d, int bitsperunit)
 int
 wordsperline(Rectangle r, int d)
 {
-	return unitsperline(r, d, 8*sizeof(ulong));
+	return unitsperline(r, d, 8*sizeof(uint32));
 }
 
 int

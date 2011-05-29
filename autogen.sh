@@ -43,6 +43,7 @@ do
 		echo 'g/#pragma/d'
 		echo '/#include "pool\.h"/d'
 		test -f $ed && cat $ed
+		echo ',s;ulong;uint32;g'
 		echo w $out
 		echo q
 	) | ed $plan9$f 2>&1 | egrep -v '^[0-9?]+$'
