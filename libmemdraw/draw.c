@@ -486,6 +486,7 @@ static Calcfn *boolcalc[Ncomp] =
 };
 
 /*
+ * Avoid standard Lock, QLock so that can be used in kernel.
  */
 typedef struct Dbuf Dbuf;
 struct Dbuf

@@ -1,6 +1,7 @@
-/^$/i
+/^#/;/^[^#]/i
 #define poolalloc(a,b) malloc(b)
 #define poolfree(a, b) free(b)
+
 .
 /^allocmemimaged/ s/)/, void *X)/
 /i->data = md;/a
